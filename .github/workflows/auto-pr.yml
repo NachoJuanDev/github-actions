@@ -1,0 +1,91 @@
+name: Auto PR between branches
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_branch:
+        description: 'Source branch name'
+        required: true
+        default: 'main'
+      target_branch:
+        description: 'Target branch name'
+        required: true
+        default: 'dev'
+  push:
+    branches:
+      - 'main'
+
+env:
+  SOURCE_BRANCH: ${{ github.event.inputs.source_branch || 'main' }}
+  TARGET_BRANCH: ${{ github.event.inputs.target_branch || 'dev' }}
+
+permissions:
+  contents: write
+  pull-requests: write
+  checks: write
+  statuses: write
+
+jobs:
+  create-and-merge-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create Pull Request
+        id: create-pr
+        run: |
+          pr_url=$(gh pr create \
+            -B ${{ env.TARGET_BRANCH }} \
+            -H ${{ env.SOURCE_BRANCH }} \
+            --title "chore: sync ${{ env.SOURCE_BRANCH }} to ${{ env.TARGET_BRANCH }}" \
+            --body "Automatically created PR to sync changes from ${{ env.SOURCE_BRANCH }} to ${{ env.TARGET_BRANCH }}")
+          echo "pr_url=$pr_url" >> $GITHUB_OUTPUT
+          pr_number=$(echo $pr_url | awk -F/ '{print $NF}')
+          echo "pr_number=$pr_number" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Wait and Enable auto-merge
+        if: steps.create-pr.outputs.pr_number
+        run: |
+          # Esperar a que el PR esté listo para merge
+          echo "Esperando a que el PR esté listo para merge..."
+          timeout=300 # 5 minutos de timeout
+          interval=10 # Verificar cada 10 segundos
+          elapsed=0
+
+          while [ $elapsed -lt $timeout ]; do
+            status=$(gh pr view ${{ steps.create-pr.outputs.pr_number }} --json mergeable -q .mergeable)
+            echo "Estado del PR: $status"
+            
+            if [ "$status" = "true" ]; then
+              echo "PR está listo para merge"
+              gh pr merge ${{ steps.create-pr.outputs.pr_number }} --merge --auto --delete-branch=false
+              break
+            fi
+            
+            sleep $interval
+            elapsed=$((elapsed + interval))
+            echo "Esperando... ($elapsed segundos transcurridos)"
+          done
+
+          if [ $elapsed -ge $timeout ]; then
+            echo "Timeout esperando que el PR esté listo para merge"
+            exit 1
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Create PR Summary
+        if: steps.create-pr.outputs.pr_url
+        run: |
+          echo "## Pull Request Created :rocket:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "🔗 [Ver Pull Request](${{ steps.create-pr.outputs.pr_url }})" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Detalles" >> $GITHUB_STEP_SUMMARY
+          echo "- **Origen:** \`${{ env.SOURCE_BRANCH }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Destino:** \`${{ env.TARGET_BRANCH }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Auto-merge:** Habilitado" >> $GITHUB_STEP_SUMMARY
