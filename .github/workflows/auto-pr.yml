@@ -39,6 +39,8 @@ jobs:
             --title "chore: sync ${{ env.SOURCE_BRANCH }} to ${{ env.TARGET_BRANCH }}" \
             --body "Automatically created PR to sync changes from ${{ env.SOURCE_BRANCH }} to ${{ env.TARGET_BRANCH }}")
           echo "pr_url=$pr_url" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Enable auto-merge
         if: steps.create-pr.outputs.pr_url
@@ -46,7 +48,7 @@ jobs:
           pr_number=$(gh pr view ${{ steps.create-pr.outputs.pr_url }} --json number -q .number)
           gh pr merge $pr_number --auto --merge
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
 
       - name: Create PR Summary
         if: steps.create-pr.outputs.pr_url
