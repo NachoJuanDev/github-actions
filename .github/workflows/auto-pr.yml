@@ -20,7 +20,10 @@ env:
   TARGET_BRANCH: ${{ github.event.inputs.target_branch || 'dev' }}
 
 permissions:
+  contents: write
   pull-requests: write
+  checks: write
+  statuses: write
 
 jobs:
   create-and-merge-pr:
