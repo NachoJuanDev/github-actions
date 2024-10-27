@@ -42,14 +42,39 @@ jobs:
             --title "chore: sync ${{ env.SOURCE_BRANCH }} to ${{ env.TARGET_BRANCH }}" \
             --body "Automatically created PR to sync changes from ${{ env.SOURCE_BRANCH }} to ${{ env.TARGET_BRANCH }}")
           echo "pr_url=$pr_url" >> $GITHUB_OUTPUT
+          pr_number=$(echo $pr_url | awk -F/ '{print $NF}')
+          echo "pr_number=$pr_number" >> $GITHUB_OUTPUT
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Enable auto-merge
-        if: steps.create-pr.outputs.pr_url
+      - name: Wait and Enable auto-merge
+        if: steps.create-pr.outputs.pr_number
         run: |
-          pr_number=$(gh pr view ${{ steps.create-pr.outputs.pr_url }} --json number -q .number)
-          gh pr merge $pr_number --auto --merge
+          # Esperar a que el PR esté listo para merge
+          echo "Esperando a que el PR esté listo para merge..."
+          timeout=300 # 5 minutos de timeout
+          interval=10 # Verificar cada 10 segundos
+          elapsed=0
+
+          while [ $elapsed -lt $timeout ]; do
+            status=$(gh pr view ${{ steps.create-pr.outputs.pr_number }} --json mergeable -q .mergeable)
+            echo "Estado del PR: $status"
+            
+            if [ "$status" = "true" ]; then
+              echo "PR está listo para merge"
+              gh pr merge ${{ steps.create-pr.outputs.pr_number }} --merge --auto --delete-branch=false
+              break
+            fi
+            
+            sleep $interval
+            elapsed=$((elapsed + interval))
+            echo "Esperando... ($elapsed segundos transcurridos)"
+          done
+
+          if [ $elapsed -ge $timeout ]; then
+            echo "Timeout esperando que el PR esté listo para merge"
+            exit 1
+          fi
         env:
           GH_TOKEN: ${{ github.token }}
 
