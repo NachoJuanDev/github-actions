@@ -1,0 +1,61 @@
+name: Auto PR between branches
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_branch:
+        description: 'Source branch name'
+        required: true
+        default: 'main'
+      target_branch:
+        description: 'Target branch name'
+        required: true
+        default: 'dev'
+  push:
+    branches:
+      - 'main'
+
+env:
+  SOURCE_BRANCH: ${{ github.event.inputs.source_branch || 'main' }}
+  TARGET_BRANCH: ${{ github.event.inputs.target_branch || 'dev' }}
+
+permissions:
+  pull-requests: write
+
+jobs:
+  create-and-merge-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create Pull Request
+        id: create-pr
+        run: |
+          pr_url=$(gh pr create \
+            -B ${{ env.TARGET_BRANCH }} \
+            -H ${{ env.SOURCE_BRANCH }} \
+            --title "chore: sync ${{ env.SOURCE_BRANCH }} to ${{ env.TARGET_BRANCH }}" \
+            --body "Automatically created PR to sync changes from ${{ env.SOURCE_BRANCH }} to ${{ env.TARGET_BRANCH }}")
+          echo "pr_url=$pr_url" >> $GITHUB_OUTPUT
+
+      - name: Enable auto-merge
+        if: steps.create-pr.outputs.pr_url
+        run: |
+          pr_number=$(gh pr view ${{ steps.create-pr.outputs.pr_url }} --json number -q .number)
+          gh pr merge $pr_number --auto --merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create PR Summary
+        if: steps.create-pr.outputs.pr_url
+        run: |
+          echo "## Pull Request Created :rocket:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "🔗 [Ver Pull Request](${{ steps.create-pr.outputs.pr_url }})" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Detalles" >> $GITHUB_STEP_SUMMARY
+          echo "- **Origen:** \`${{ env.SOURCE_BRANCH }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Destino:** \`${{ env.TARGET_BRANCH }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Auto-merge:** Habilitado" >> $GITHUB_STEP_SUMMARY
